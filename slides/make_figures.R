@@ -53,7 +53,16 @@ plate_heatmap <- function(plate, genes = character(0), title = NULL, show_tetrad
     geom_rect(data = filter(boxes, genename %in% genes),
               aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, colour = genename),
               inherit.aes = FALSE, fill = NA, linewidth = 1.6) +
-    scale_fill_gradient(low = "black", high = "white", name = "Iris opacity") +
+    # One colour scale for every plate, so a grey tile means the same opacity on
+    # every slide and the plates can be compared by flipping between them. Per
+    # plate scaling would hide the fact that the toxin roughly thirds the growth.
+    # The square root keeps the low end readable: on one linear scale the
+    # Ara + IPTG plate, which sits around a third of the others, goes nearly flat
+    # black and the blockers stop standing out.
+    scale_fill_gradient(low = "black", high = "white", name = "Iris opacity",
+                        transform = "sqrt", limits = c(0, 3e5),
+                        breaks = c(0, 5e4, 1e5, 2e5, 3e5),
+                        labels = c("0", "50k", "100k", "200k", "300k")) +
     scale_colour_manual(values = box_colours, breaks = names(box_colours), name = NULL) +
     scale_y_reverse(breaks = 1:16, labels = LETTERS[1:16], expand = c(0, 0)) +
     scale_x_continuous(breaks = 1:24, position = "top", expand = c(0, 0)) +
@@ -74,6 +83,8 @@ save_fig <- function(p, name) ggsave(file.path("slides/figures", name), p, width
 save_fig(plate_heatmap(araiptg, show_tetrads = TRUE), "plate_heatmap.png")
 save_fig(plate_heatmap(araiptg, "50aa_1_55", show_tetrads = TRUE), "plate_heatmap_hit.png")
 save_fig(plate_heatmap(araiptg, c("50aa_1_55", "50aa_1_14"), show_tetrads = TRUE), "plate_heatmap_hit_toxic.png")
+# same plate, library gene induced but no toxin: the comparison slide
+save_fig(plate_heatmap(iptg, c("50aa_1_55", "50aa_1_14"), show_tetrads = TRUE), "plate_heatmap_iptg_hit_toxic.png")
 save_fig(plate_heatmap(araiptg, "50aa_1_14", "Ara + IPTG (toxin + library gene)"), "plate_heatmap_toxic_araiptg.png")
 save_fig(plate_heatmap(iptg, "50aa_1_14", "IPTG only (library gene)"), "plate_heatmap_toxic_iptg.png")
 # dark spots: colonies with opacity 0 on IPTG plates are present on the uninduced plate
