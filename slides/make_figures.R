@@ -23,7 +23,10 @@ gene_box <- function(gene) {
 }
 
 box_colours <- c("50aa_1_55" = "red", "50aa_1_14" = "#1f77b4", "50aa_2_5" = "#ff7f0e")
-boxes <- map_dfr(names(box_colours), gene_box)
+boxes <- map_dfr(names(box_colours), gene_box) %>%
+  # keep the legend in reveal order, so an entry never shifts when a later
+  # figure adds another gene below it
+  mutate(genename = factor(genename, levels = names(box_colours)))
 
 plate_heatmap <- function(plate, genes = character(0), title = NULL) {
   ggplot(plate, aes(column, row, fill = opacity)) +
@@ -32,13 +35,18 @@ plate_heatmap <- function(plate, genes = character(0), title = NULL) {
               aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, colour = genename),
               inherit.aes = FALSE, fill = NA, linewidth = 1.2) +
     scale_fill_gradient(low = "black", high = "white", name = "Iris opacity") +
-    scale_colour_manual(values = box_colours, name = NULL) +
+    scale_colour_manual(values = box_colours, breaks = names(box_colours), name = NULL) +
     scale_y_reverse(breaks = 1:16, labels = LETTERS[1:16], expand = c(0, 0)) +
     scale_x_continuous(breaks = 1:24, position = "top", expand = c(0, 0)) +
     coord_fixed() +
     labs(x = NULL, y = NULL, title = title) +
     theme_minimal(base_size = 12) +
-    theme(panel.grid = element_blank())
+    # Pin the legend block to the top and keep the opacity bar above the gene
+    # boxes, so the legend sits in the same place on every figure. Otherwise a
+    # figure with two boxed genes has a taller legend, which is centred, and the
+    # whole block shifts between slides.
+    theme(panel.grid = element_blank(), legend.justification = "top") +
+    guides(fill = guide_colourbar(order = 1), colour = guide_legend(order = 2))
 }
 
 save_fig <- function(p, name) ggsave(file.path("slides/figures", name), p, width = 9, height = 5.4, dpi = 150, bg = "white")
