@@ -1,0 +1,7 @@
+name: r_tic
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - r-tidyverse
+  - r-base=4.3
