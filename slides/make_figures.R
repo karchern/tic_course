@@ -13,6 +13,7 @@ read_plate <- function(file) {
 
 araiptg <- read_plate("data/iris/SpecGentAraIPTG-10050201-3A_1.jpg.iris")
 iptg    <- read_plate("data/iris/SpecGentIPTG-100501-3A_1.jpg.iris")
+none    <- read_plate("data/iris/SpecGent-1005-3A_1.jpg.iris")
 
 # box around the 4 colonies (2 clones x 2 technical replicates) of one gene
 gene_box <- function(gene) {
@@ -21,7 +22,7 @@ gene_box <- function(gene) {
               ymin = min(row) - 0.5,    ymax = max(row) + 0.5, genename = gene)
 }
 
-box_colours <- c("50aa_1_55" = "red", "50aa_1_14" = "#1f77b4")
+box_colours <- c("50aa_1_55" = "red", "50aa_1_14" = "#1f77b4", "50aa_2_5" = "#ff7f0e")
 boxes <- map_dfr(names(box_colours), gene_box)
 
 plate_heatmap <- function(plate, genes = character(0), title = NULL) {
@@ -47,9 +48,12 @@ save_fig(plate_heatmap(araiptg, "50aa_1_55"), "plate_heatmap_hit.png")
 save_fig(plate_heatmap(araiptg, c("50aa_1_55", "50aa_1_14")), "plate_heatmap_hit_toxic.png")
 save_fig(plate_heatmap(araiptg, "50aa_1_14", "Ara + IPTG (toxin + library gene)"), "plate_heatmap_toxic_araiptg.png")
 save_fig(plate_heatmap(iptg, "50aa_1_14", "IPTG only (library gene)"), "plate_heatmap_toxic_iptg.png")
+# dark spots: colonies with opacity 0 on IPTG plates are present on the uninduced plate
+save_fig(plate_heatmap(araiptg, "50aa_2_5", "Ara + IPTG (toxin + library gene)"), "plate_heatmap_dark_araiptg.png")
+save_fig(plate_heatmap(none, "50aa_2_5", "No induction"), "plate_heatmap_dark_none.png")
 
 # values for the slide text: opacity of each highlighted colony relative to its plate's GFP mean
-bind_rows(`Ara + IPTG` = araiptg, IPTG = iptg, .id = "plate") %>%
+bind_rows(`Ara + IPTG` = araiptg, IPTG = iptg, none = none, .id = "plate") %>%
   group_by(plate) %>%
   mutate(rel_to_gfp = round(opacity / mean(opacity[genename == "gfp"]), 2)) %>%
   filter(genename %in% names(box_colours)) %>%
