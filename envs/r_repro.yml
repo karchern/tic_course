@@ -16,3 +16,4 @@ dependencies:
   - r-janitor
   - r-ggrepel
   - r-plotrix
+  - r-png
