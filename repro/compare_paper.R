@@ -1,13 +1,13 @@
-# Rebuild the published (Sept 2023) analysis from the paper methods and compare
-# it to reference/published_hits_pir116_low.txt.
+# Rebuild the paper analysis (Jendrusch et al. 2025, MSB, Fig. 7B/C) from its methods and compare
+# it to the paper source data in reference/paper_fig7BC/.
 # Input: output/repro_dirty/output/alpha_df.txt (written by alphafold_tactic_patched.Rmd)
-# Run from the repo root: Rscript repro/compare_published.R
+# Run from the repo root: Rscript repro/compare_paper.R
 suppressMessages(library(tidyverse))
 
 df  <- read_tsv("output/repro_dirty/output/alpha_df.txt", show_col_types = FALSE)
-pub <- read_tsv("reference/published_hits_pir116_low.txt", show_col_types = FALSE) %>%
-  # the table's own "hit" column is an older, looser call (25 Sen2 / 19 Eco9 hits);
-  # the paper (Fig. 7B/C: 17 Sen2 / 5 Eco9) applies p < 0.01 & effect size > 1.1 (Sen2) / 1.3 (Eco9)
+pub <- read_tsv("reference/paper_fig7BC/230908_hits_onlyLowInduction_pir116.txt", show_col_types = FALSE) %>%
+  # the file's "hit" column is an older, looser call (25 Sen2 / 19 Eco9 hits);
+  # the figure (17 Sen2 / 5 Eco9) applies p < 0.01 & effect size > 1.1 (Sen2) / 1.3 (Eco9)
   mutate(hit = ifelse(pval < 0.01 & efsize > ifelse(retron == "Sen2", 1.1, 1.3), "hit", "neutral"))
 
 # pir116 (Gent) plates, low blocker induction only
@@ -50,42 +50,42 @@ res <- ratios %>%
             .groups = "drop") %>%
   mutate(hit = ifelse(pval < 0.01 & efsize > ifelse(retron == "Sen2", 1.1, 1.3), "hit", "neutral"))
 
-cmp <- inner_join(res, pub, by = c("genename", "retron"), suffix = c("_rebuilt", "_published"))
+cmp <- inner_join(res, pub, by = c("genename", "retron"), suffix = c("_rebuilt", "_paper"))
 
 stats <- cmp %>%
   group_by(retron) %>%
   summarise(n                = n(),
-            efsize_pearson   = cor(efsize_rebuilt, efsize_published),
-            efsize_spearman  = cor(efsize_rebuilt, efsize_published, method = "spearman"),
-            log10p_pearson   = cor(log10(pval_rebuilt), log10(pval_published)),
-            log10p_spearman  = cor(pval_rebuilt, pval_published, method = "spearman"),
+            efsize_pearson   = cor(efsize_rebuilt, efsize_paper),
+            efsize_spearman  = cor(efsize_rebuilt, efsize_paper, method = "spearman"),
+            log10p_pearson   = cor(log10(pval_rebuilt), log10(pval_paper)),
+            log10p_spearman  = cor(pval_rebuilt, pval_paper, method = "spearman"),
             hits_rebuilt     = sum(hit_rebuilt == "hit"),
-            hits_published   = sum(hit_published == "hit"),
-            hits_shared      = sum(hit_rebuilt == "hit" & hit_published == "hit"))
+            hits_paper   = sum(hit_paper == "hit"),
+            hits_shared      = sum(hit_rebuilt == "hit" & hit_paper == "hit"))
 print(stats, width = Inf)
 
 dir.create("output/compare", showWarnings = FALSE, recursive = TRUE)
-write_tsv(cmp, "output/compare/rebuilt_vs_published.tsv")
+write_tsv(cmp, "output/compare/rebuilt_vs_paper.tsv")
 
 long <- cmp %>%
-  transmute(retron, genename, hit_published,
-            `effect size`  = paste(efsize_rebuilt, efsize_published),
-            `-log10(p)`    = paste(-log10(pval_rebuilt), -log10(pval_published))) %>%
+  transmute(retron, genename, hit_paper,
+            `effect size`  = paste(efsize_rebuilt, efsize_paper),
+            `-log10(p)`    = paste(-log10(pval_rebuilt), -log10(pval_paper))) %>%
   pivot_longer(c(`effect size`, `-log10(p)`), names_to = "metric") %>%
-  separate(value, c("rebuilt", "published"), sep = " ", convert = TRUE)
+  separate(value, c("rebuilt", "paper"), sep = " ", convert = TRUE)
 labs_df <- stats %>%
   transmute(retron,
             `effect size` = sprintf("r = %.2f, rho = %.2f", efsize_pearson, efsize_spearman),
             `-log10(p)`   = sprintf("r = %.2f, rho = %.2f", log10p_pearson, log10p_spearman)) %>%
   pivot_longer(-retron, names_to = "metric", values_to = "label")
 
-p <- ggplot(long, aes(published, rebuilt)) +
+p <- ggplot(long, aes(paper, rebuilt)) +
   geom_abline(slope = 1, intercept = 0, colour = "grey60") +
-  geom_point(aes(colour = hit_published), alpha = 0.7) +
+  geom_point(aes(colour = hit_paper), alpha = 0.7) +
   geom_text(data = labs_df, aes(label = label), x = -Inf, y = Inf, hjust = -0.05, vjust = 1.3, size = 3.2) +
   facet_wrap(metric ~ retron, scales = "free") +
   scale_colour_manual(values = c(hit = "firebrick", neutral = "grey40")) +
-  labs(x = "published (230908_hits_onlyLowInduction_pir116.txt)", y = "rebuilt from paper methods",
-       colour = "paper hit call", title = "Rebuilt vs published: pir116, low blocker induction") +
+  labs(x = "paper (Fig. 7B/C source data)", y = "rebuilt from paper methods",
+       colour = "paper hit call", title = "Rebuilt vs paper Fig. 7B/C: pir116, low blocker induction") +
   theme_bw()
-ggsave("output/compare/rebuilt_vs_published.png", p, width = 9, height = 8, dpi = 120)
+ggsave("output/compare/rebuilt_vs_paper.png", p, width = 9, height = 8, dpi = 120)
