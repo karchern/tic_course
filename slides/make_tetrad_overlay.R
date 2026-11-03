@@ -76,6 +76,14 @@ draw_box <- function(im, x0, x1, y0, y1, rgb, w) {
 colony_x <- function(c) grid$x0 + grid$px * (c - 1)
 colony_y <- function(r) grid$y0 + grid$py * (r - 1)
 
+# Brightness read off the photo at each fitted colony position, saved so that
+# make_figures.R can show it beside the Iris values: if the heatmap were
+# transposed, flipped or offset, the two pictures would not match.
+dpx <- round(grid$px * 0.25)
+iris$photo <- mapply(function(r, c) patch(colony_x(c), colony_y(r), dpx), iris$row, iris$column)
+write.csv(iris[, c("row", "column", "opacity", "photo")],
+          "slides/figures/photo_vs_iris.csv", row.names = FALSE)
+
 out <- img[, , 1:3]
 
 # one red box per library tetrad
