@@ -1,0 +1,18 @@
+name: r_repro
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - r-plyr
+  - r-ggpubr
+  - r-tidyverse
+  - r-data.table
+  - r-base=4.3
+  - r-patchwork
+  - r-pacman
+  - r-rmarkdown
+  - r-cowplot
+  - r-knitr
+  - r-janitor
+  - r-ggrepel
+  - r-plotrix
