@@ -77,13 +77,28 @@ colony_x <- function(c) grid$x0 + grid$px * (c - 1)
 colony_y <- function(r) grid$y0 + grid$py * (r - 1)
 
 out <- img[, , 1:3]
+
+# one red box per library tetrad
 for (tx in 1:12) for (ty in 1:8) {
-  is_gfp <- any(gfp$tx == tx & gfp$ty == ty)
+  if (any(gfp$tx == tx & gfp$ty == ty)) next
   out <- draw_box(out,
                   round(colony_x(2 * tx - 1) - grid$px * 0.42), round(colony_x(2 * tx) + grid$px * 0.42),
                   round(colony_y(2 * ty - 1) - grid$py * 0.42), round(colony_y(2 * ty) + grid$py * 0.42),
-                  if (is_gfp) c(0.10, 0.75, 0.25) else c(0.90, 0.10, 0.10), 4)
+                  c(0.90, 0.10, 0.10), 4)
 }
+
+# The GFP wells are one contiguous block, and the split between them carries no
+# meaning: they are averaged into a single per-plate baseline. So they get one
+# box, not eight. Stop if the layout ever stops being a solid rectangle.
+block <- expand.grid(tx = min(gfp$tx):max(gfp$tx), ty = min(gfp$ty):max(gfp$ty))
+if (nrow(block) != nrow(gfp) || !all(paste(block$tx, block$ty) %in% paste(gfp$tx, gfp$ty)))
+  stop("the GFP wells are not a solid rectangle - one box would enclose non-GFP strains")
+cat(sprintf("GFP block: tetrad columns %d-%d, rows %d-%d\n",
+            min(gfp$tx), max(gfp$tx), min(gfp$ty), max(gfp$ty)))
+out <- draw_box(out,
+                round(colony_x(2 * min(gfp$tx) - 1) - grid$px * 0.42), round(colony_x(2 * max(gfp$tx)) + grid$px * 0.42),
+                round(colony_y(2 * min(gfp$ty) - 1) - grid$py * 0.42), round(colony_y(2 * max(gfp$ty)) + grid$py * 0.42),
+                c(0.10, 0.75, 0.25), 5)
 
 writePNG(out, "slides/figures/plate_photo_tetrads.png")
 cat("wrote slides/figures/plate_photo_tetrads.png\n")
