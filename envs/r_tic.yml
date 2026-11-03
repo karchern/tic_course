@@ -6,3 +6,4 @@ dependencies:
   - r-tidyverse
   - r-base=4.3
   - radian
+  - r-patchwork
