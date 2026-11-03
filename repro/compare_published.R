@@ -5,7 +5,10 @@
 suppressMessages(library(tidyverse))
 
 df  <- read_tsv("output/repro_dirty/output/alpha_df.txt", show_col_types = FALSE)
-pub <- read_tsv("reference/published_hits_pir116_low.txt", show_col_types = FALSE)
+pub <- read_tsv("reference/published_hits_pir116_low.txt", show_col_types = FALSE) %>%
+  # the table's own "hit" column is an older, looser call (25 Sen2 / 19 Eco9 hits);
+  # the paper (Fig. 7B/C: 17 Sen2 / 5 Eco9) applies p < 0.01 & effect size > 1.1 (Sen2) / 1.3 (Eco9)
+  mutate(hit = ifelse(pval < 0.01 & efsize > ifelse(retron == "Sen2", 1.1, 1.3), "hit", "neutral"))
 
 # pir116 (Gent) plates, low blocker induction only
 d <- df %>%
@@ -83,6 +86,6 @@ p <- ggplot(long, aes(published, rebuilt)) +
   facet_wrap(metric ~ retron, scales = "free") +
   scale_colour_manual(values = c(hit = "firebrick", neutral = "grey40")) +
   labs(x = "published (230908_hits_onlyLowInduction_pir116.txt)", y = "rebuilt from paper methods",
-       colour = "published call", title = "Rebuilt vs published: pir116, low blocker induction") +
+       colour = "paper hit call", title = "Rebuilt vs published: pir116, low blocker induction") +
   theme_bw()
 ggsave("output/compare/rebuilt_vs_published.png", p, width = 9, height = 8, dpi = 120)
