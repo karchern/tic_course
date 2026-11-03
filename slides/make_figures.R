@@ -42,8 +42,7 @@ library_tetrads <- filter(tetrads, !gfp)
 gfp_block <- tetrads %>% filter(gfp) %>%
   summarise(xmin = min(xmin), xmax = max(xmax), ymin = min(ymin), ymax = max(ymax))
 
-plate_heatmap <- function(plate, genes = character(0), title = NULL, show_tetrads = FALSE,
-                          shared_scale = TRUE) {
+plate_heatmap <- function(plate, genes = character(0), title = NULL, show_tetrads = FALSE) {
   rect <- function(d, colour, linewidth)
     geom_rect(data = d, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
               inherit.aes = FALSE, fill = NA, colour = colour, linewidth = linewidth)
@@ -60,19 +59,12 @@ plate_heatmap <- function(plate, genes = character(0), title = NULL, show_tetrad
     # The square root keeps the low end readable: on one linear scale the
     # Ara + IPTG plate, which sits around a third of the others, goes nearly flat
     # black and the blockers stop standing out.
-    # shared_scale = FALSE stretches the scale over one plate's own range, which
-    # is what you want when the point is each gene against the controls on its
-    # own plate rather than one plate against another. Labels keep the same "50k"
-    # format either way, so the legend stays the same width and the panel does
-    # not change size between figures.
-    (if (shared_scale)
-       scale_fill_gradient(low = "black", high = "white", name = "Iris opacity",
-                           transform = "sqrt", limits = c(0, 3e5),
-                           breaks = c(0, 5e4, 1e5, 2e5, 3e5),
-                           labels = c("0", "50k", "100k", "200k", "300k"))
-     else
-       scale_fill_gradient(low = "black", high = "white", name = "Iris opacity",
-                           labels = scales::label_number(scale = 1e-3, suffix = "k"))) +
+    # Each plate is stretched over its own range: a gene is read against the
+    # controls on its own plate, not against another plate. Labels use the same
+    # "50k" format everywhere so the legend keeps one width and the panel is the
+    # same size in every figure.
+    scale_fill_gradient(low = "black", high = "white", name = "Iris opacity",
+                        labels = scales::label_number(scale = 1e-3, suffix = "k")) +
     scale_colour_manual(values = box_colours, breaks = names(box_colours), name = NULL) +
     scale_y_reverse(breaks = 1:16, labels = LETTERS[1:16], expand = c(0, 0)) +
     scale_x_continuous(breaks = 1:24, position = "top", expand = c(0, 0)) +
@@ -97,8 +89,8 @@ save_fig(plate_heatmap(araiptg, c("50aa_1_55", "50aa_1_14"), show_tetrads = TRUE
 save_fig(plate_heatmap(iptg, c("50aa_1_55", "50aa_1_14"), show_tetrads = TRUE), "plate_heatmap_iptg_hit_toxic.png")
 # These two are read against each plate's own controls, not against each other,
 # so each keeps its own scale.
-save_fig(plate_heatmap(araiptg, "50aa_1_14", "Ara + IPTG (toxin + library gene)", shared_scale = FALSE), "plate_heatmap_toxic_araiptg.png")
-save_fig(plate_heatmap(iptg, "50aa_1_14", "IPTG only (library gene)", shared_scale = FALSE), "plate_heatmap_toxic_iptg.png")
+save_fig(plate_heatmap(araiptg, "50aa_1_14", "Ara + IPTG (toxin + library gene)"), "plate_heatmap_toxic_araiptg.png")
+save_fig(plate_heatmap(iptg, "50aa_1_14", "IPTG only (library gene)"), "plate_heatmap_toxic_iptg.png")
 # dark spots: colonies with opacity 0 on IPTG plates are present on the uninduced plate
 save_fig(plate_heatmap(araiptg, "50aa_2_5", "Ara + IPTG (toxin + library gene)"), "plate_heatmap_dark_araiptg.png")
 save_fig(plate_heatmap(none, "50aa_2_5", "No induction"), "plate_heatmap_dark_none.png")
@@ -136,3 +128,25 @@ if (file.exists("slides/figures/photo_vs_iris.csv")) {
     theme(panel.grid = element_blank())
   ggsave("slides/figures/alignment_check.png", p, width = 11, height = 4.4, dpi = 150, bg = "white")
 }
+
+# Where does the tile panel land inside a saved PNG? Re-render the same plot
+# with the panel painted a flat colour and find that colour. Exact, and it
+# survives any later change to labels or legend.
+panel_probe <- function(p, name) {
+  f <- tempfile(fileext = ".png")
+  suppressMessages(ggsave(f, p + annotate("rect", xmin = 0.5, xmax = 24.5, ymin = 0.5, ymax = 16.5,
+                                          fill = "#FF00FF"),
+                          width = 9, height = 5.4, dpi = 150, bg = "white"))
+  im <- png::readPNG(f)
+  m <- im[, , 1] > 0.9 & im[, , 2] < 0.2 & im[, , 3] > 0.9
+  cols <- which(colSums(m) > 0); rows <- which(rowSums(m) > 0)
+  data.frame(image = name, width = ncol(m), height = nrow(m),
+             left = min(cols), right = max(cols), top = min(rows), bottom = max(rows))
+}
+
+write.csv(rbind(
+  panel_probe(plate_heatmap(araiptg, show_tetrads = TRUE), "plate_heatmap.png"),
+  panel_probe(plate_heatmap(araiptg, "50aa_1_55", show_tetrads = TRUE), "plate_heatmap_hit.png"),
+  panel_probe(plate_heatmap(araiptg, c("50aa_1_55", "50aa_1_14"), show_tetrads = TRUE), "plate_heatmap_hit_toxic.png"),
+  panel_probe(plate_heatmap(iptg, c("50aa_1_55", "50aa_1_14"), show_tetrads = TRUE), "plate_heatmap_iptg_hit_toxic.png")),
+  "slides/figures/heatmap_grid.csv", row.names = FALSE)

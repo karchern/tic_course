@@ -84,6 +84,15 @@ iris$photo <- mapply(function(r, c) patch(colony_x(c), colony_y(r), dpx), iris$r
 write.csv(iris[, c("row", "column", "opacity", "photo")],
           "slides/figures/photo_vs_iris.csv", row.names = FALSE)
 
+# Where the colony grid sits inside the photo, in pixels, so the slides can put
+# the photo and the heatmaps on screen with their grids on top of each other.
+# The edges are half a pitch beyond the outermost colony centres, matching the
+# outer edge of a heatmap tile.
+write.csv(data.frame(image = "photo", width = ncol(grey), height = nrow(grey),
+                     left   = colony_x(1)  - grid$px / 2, right  = colony_x(24) + grid$px / 2,
+                     top    = colony_y(1)  - grid$py / 2, bottom = colony_y(16) + grid$py / 2),
+          "slides/figures/photo_grid.csv", row.names = FALSE)
+
 out <- img[, , 1:3]
 
 # one red box per library tetrad
