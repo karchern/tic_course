@@ -7,3 +7,4 @@ dependencies:
   - r-base=4.3
   - radian
   - r-patchwork
+  - r-png
