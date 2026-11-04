@@ -9,8 +9,8 @@
 # A GFP quartet from the same plates is shown alongside as the reference: GFP
 # does not block the toxin, so it is what "no effect" looks like.
 #
-# Only plates we have a photograph of can appear on the right. Photos go in
-# data/photos, named after the plate like the .iris files; see plate_photos.R.
+# Photos go in data/photos, named after the plate like the .iris files; see
+# plate_photos.R. A plate without a photo is reported and left out.
 #
 #   source("inspect_gene.R")
 #   inspect_gene("50aa_1_55")
@@ -21,6 +21,8 @@ source("plate_photos.R")
 inspect_gene <- function(gene, colonies = NULL) {
   if (is.null(colonies)) colonies <- read_tsv("data/colonies.tsv", show_col_types = FALSE)
   if (!gene %in% colonies$genename) stop(gene, " is not in the data")
+  # the two conditions the analysis compares
+  colonies <- colonies %>% filter(induction %in% c("IPTG", "AraIPTG"))
 
   # One GFP well, near the middle of the GFP block, as the reference quartet.
   gfp_well <- colonies %>%
@@ -37,9 +39,8 @@ inspect_gene <- function(gene, colonies = NULL) {
     mutate(what      = factor(if_else(genename == "gfp", "GFP control", gene),
                               levels = c(gene, "GFP control")),
            position  = paste0(LETTERS[row], column),
-           condition = factor(induced, levels = c("IPTG", "AraIPTG"),
+           condition = factor(induction, levels = c("IPTG", "AraIPTG"),
                               labels = c("IPTG\ngene only", "Ara + IPTG\ngene + toxin")),
-           plate     = paste(drugs, inducers, copy, sep = "-"),
            well_row  = (row + 1) %/% 2,
            well_col  = (column + 1) %/% 2)
 
@@ -84,7 +85,7 @@ inspect_gene <- function(gene, colonies = NULL) {
   } else {
     message("no photograph for: ", paste(missing, collapse = ", "),
             "\n  (drop one in ", photo_dir, " named after the plate to include it)")
-    sprintf("right: real colonies, for the %d of %d plates here we have a photograph of",
+    sprintf("right: real colonies, for the %d of %d plates we have a photograph of",
             length(have), length(have) + length(missing))
   }
 

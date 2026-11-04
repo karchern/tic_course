@@ -34,7 +34,7 @@ colonies <- list.files(iris_dir, "\\.iris$", full.names = TRUE) %>%
 # The plate name carries the design, e.g. SpecGentAraIPTG-10050201-3A_1:
 # antibiotics, inducer concentrations, then which copy of the plate it is.
 colonies <- colonies %>%
-  separate_wider_delim(plate, "-", names = c("drugs", "inducers", "copy")) %>%
+  separate_wider_delim(plate, "-", names = c("drugs", "inducers", "copy"), cols_remove = FALSE) %>%
   mutate(
     block     = as.integer(str_sub(copy, 1, 1)),
     plate_rep = str_sub(copy, 2),
@@ -53,12 +53,19 @@ colonies <- colonies %>%
   filter(plasmid == "pir116",   # the high-copy toxin plasmid
          iptg != "high",        # low blocker induction only
          retron == "Sen2",
-         !is.na(genename), # positions the map leaves empty
-         induced %in% c("AraIPTG", "IPTG") # keep only conditions we care about
+         !is.na(genename) # positions the map leaves empty
+         # all four inductions are kept: the analysis uses IPTG and AraIPTG,
+         # the sanity checks need the uninduced and Ara-only plates too
          ) %>%
   group_by(plate_rep, induced, strain) %>%
   ungroup()
 
+# 3. Keep only columns we need
+colonies <- colonies %>%
+  select(
+    row, column, opacity, plate, copy, strain, genename, plate_96, plate_rep, retron, induced
+  ) %>%
+  rename(induction = induced)
 
 write_tsv(colonies, out_file)
 cat("wrote", out_file, "-", nrow(colonies), "colonies,",

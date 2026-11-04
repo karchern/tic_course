@@ -8,3 +8,4 @@ dependencies:
   - radian
   - r-patchwork
   - r-png
+  - r-jpeg

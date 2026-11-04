@@ -1,45 +1,121 @@
 # Cut the raw colony images out of the plate photographs.
 #
-# Iris turned each plate photo into one opacity number per colony. To look at
-# the colonies themselves we need to find the colony grid in the photo again.
-# That is done by lining the photo up with the Iris measurements of the same
-# plate: a grid that is off by even one colony correlates badly, so a misplaced
-# grid cannot pass unnoticed. The fit is cached next to the photo.
+# Iris turned each plate photo into one opacity number per colony and threw the
+# picture away, so to look at the colonies themselves we have to find the
+# colony grid in the photo again. Iris's own grid coordinates are no help: it
+# worked on a cropped and resized copy of the photo.
+#
+# So the grid is found from scratch, in four steps:
+#   1. the plate is located as the bright area in the photo;
+#   2. the spacing between colonies comes from the periodicity of the plate's
+#      own brightness profile;
+#   3. the position of the grid comes from lining the profile up with the
+#      opacities Iris measured, column by column and row by row;
+#   4. the whole grid is then scored against all 384 Iris measurements and
+#      polished. Below r = 0.85 we refuse to cut anything out, so a grid that
+#      is off by a colony cannot pass unnoticed.
+# The answer is cached next to the photo as <plate>.grid.csv.
 #
 # Photos live in data/photos, named after the plate exactly like the .iris
-# files, e.g. data/photos/SpecGentAraIPTG-10050201-3A_1.png. Drop a plate's
-# photo in there and it becomes available to inspect_gene(); plates without a
-# photo are simply left out.
-library(png)
+# files, e.g. data/photos/SpecGentAraIPTG-10050201-3A_1.jpg.
+library(jpeg)
 
 photo_dir <- "data/photos"
 iris_dir  <- "data/iris"
 
-# Which plates we have a photo for.
 plates_with_photos <- function() {
-  str_remove(basename(list.files(photo_dir, "\\.png$")), "\\.png$")
+  str_remove(basename(list.files(photo_dir, "\\.jpg$")), "\\.jpg$")
 }
 
-plate_photo_path <- function(plate) file.path(photo_dir, paste0(plate, ".png"))
+plate_photo_path <- function(plate) file.path(photo_dir, paste0(plate, ".jpg"))
+plate_iris_path  <- function(plate) file.path(iris_dir, paste0(plate, ".jpg.iris"))
+
+# Searching the grid reads thousands of little patches, so it is done on a
+# thinned copy of the photo. Colonies are over a hundred pixels across, so
+# nothing that matters is lost; the answer is scaled back up at the end.
+read_grey <- function(path, target_px = 2.2e6) {
+  full <- readJPEG(path)
+  if (length(dim(full)) == 3) full <- full[, , 1]
+  step <- max(1, floor(sqrt(length(full) / target_px)))
+  list(grey = full[seq(1, nrow(full), step), seq(1, ncol(full), step)], step = step)
+}
+
+# the bright rectangle in the middle of the photo: the plate
+plate_box <- function(profile, shrink = 0.02) {
+  edges <- range(which(profile > (min(profile) + max(profile)) / 2))
+  round(c(edges[1] + diff(edges) * shrink, edges[2] - diff(edges) * shrink))
+}
+
+# flatten the slow brightness gradient, leaving the colonies
+detrend <- function(profile, window) {
+  smooth <- stats::filter(profile, rep(1 / (2 * window + 1), 2 * window + 1), sides = 2)
+  profile - ifelse(is.na(smooth), median(profile), smooth)
+}
+
+
+# Grids already fitted for other plates, in this photo's own coordinates: the
+# median of the good ones, and each of them on its own.
+rig_grids <- function(plate, step, min_agreement = 0.95) {
+  files <- setdiff(list.files(photo_dir, "\\.grid\\.csv$", full.names = TRUE),
+                   file.path(photo_dir, paste0(plate, ".grid.csv")))
+  fitted <- map(files, read.csv) %>% list_rbind() %>% filter(agreement >= min_agreement)
+  if (nrow(fitted) == 0) return(list())
+  shrink <- function(g) list(x0 = (g$x0 - 1) / step + 1, px = g$px / step,
+                             y0 = (g$y0 - 1) / step + 1, py = g$py / step)
+  c(list(shrink(summarise(fitted, across(c(x0, px, y0, py), median)))),
+    map(seq_len(nrow(fitted)), \(i) shrink(fitted[i, ])))
+}
 
 
 # Fitting the colony grid ----------------------------------------------------
-# A grid is four numbers: the centre of the first colony and the spacing
-# between colonies, in pixels, for each axis.
 
-fit_colony_grid <- function(plate, quiet = FALSE, iris_file = NULL) {
+fit_colony_grid <- function(plate, quiet = FALSE) {
   cache <- file.path(photo_dir, paste0(plate, ".grid.csv"))
   if (file.exists(cache)) return(as.list(read.csv(cache)))
 
-  if (is.null(iris_file)) iris_file <- file.path(iris_dir, paste0(plate, ".jpg.iris"))
-  iris <- read.delim(iris_file, skip = 6)
-  full <- readPNG(plate_photo_path(plate))[, , 1]
+  img  <- read_grey(plate_photo_path(plate))
+  grey <- img$grey
+  iris <- read.delim(plate_iris_path(plate), skip = 6)
 
-  # Searching the grid means reading thousands of little patches, so a large
-  # photo is fitted on a thinned-out copy and the answer scaled back up. The
-  # colonies are tens of pixels across, so nothing is lost.
-  step <- max(1, floor(sqrt(length(full) / 2.2e6)))
-  grey <- full[seq(1, nrow(full), step), seq(1, ncol(full), step)]
+  cols <- plate_box(colMeans(grey))
+  rows <- plate_box(rowMeans(grey))
+  inside <- grey[rows[1]:rows[2], cols[1]:cols[2]]
+  col_profile <- detrend(colMeans(inside), 60)
+  row_profile <- detrend(rowMeans(inside), 60)
+
+  # Iris's mean opacity per column (and per row) is a fingerprint of the plate:
+  # dim columns are dim in the photo too. So we try every plausible spacing and
+  # starting point, and keep the few that reproduce that fingerprint best.
+  col_opacity <- tapply(iris$opacity, iris$column, mean)
+  row_opacity <- tapply(iris$opacity, iris$row, mean)
+  # On a plate where the toxin killed most colonies the fingerprint is faint,
+  # so we keep several candidates rather than one, and make them genuinely
+  # different grids instead of neighbours of the same peak.
+  candidates <- function(profile, n, target, keep = 8, pitches = NULL) {
+    span <- length(profile)
+    if (is.null(pitches)) pitches <- seq(span / (n + 6), (span - 1) / (n - 1), by = 0.25)
+    found <- NULL
+    for (pitch in pitches) {
+      starts <- seq(1, span - pitch * (n - 1), by = 0.5)
+      fit <- vapply(starts, function(s) cor(profile[round(s + pitch * (0:(n - 1)))], target),
+                    numeric(1))
+      found <- rbind(found, data.frame(pitch = pitch, start = starts, fit = fit))
+    }
+    found <- found[order(found$fit, decreasing = TRUE), ]
+    out <- found[0, ]
+    for (k in seq_len(nrow(found))) {
+      if (nrow(out) == keep) break
+      far <- abs(out$start - found$start[k]) > 3 | abs(out$pitch - found$pitch[k]) > 1
+      if (all(far)) out <- rbind(out, found[k, ])
+    }
+    out
+  }
+  # 24 columns give a far sharper fingerprint than 16 rows, so the columns
+  # decide the spacing; the 384 format is square, so the rows reuse it and only
+  # have to find where they start.
+  col_fit <- candidates(col_profile, 24, col_opacity)
+  row_fit <- candidates(row_profile, 16, row_opacity, keep = 3,
+                        pitches = seq(min(col_fit$pitch) - 1, max(col_fit$pitch) + 1, by = 0.25))
 
   # Brightness of a predicted colony above its local agar background. This
   # mirrors what Iris calls opacity, so the two are directly comparable.
@@ -50,7 +126,6 @@ fit_colony_grid <- function(plate, quiet = FALSE, iris_file = NULL) {
     mean(grey[(y - d):(y + d), (x - d):(x + d)]) -
       median(grey[(y - 2 * d):(y + 2 * d), (x - 2 * d):(x + 2 * d)])
   }
-
   score_grid <- function(g) {
     d <- round(g$px * 0.25)
     b <- mapply(function(r, cc) patch(g$x0 + g$px * (cc - 1), g$y0 + g$py * (r - 1), d),
@@ -59,10 +134,30 @@ fit_colony_grid <- function(plate, quiet = FALSE, iris_file = NULL) {
     cor(b, iris$opacity)
   }
 
-  # starting guess as fractions of the image, so it survives a different size
-  grid <- list(x0 = 0.1286 * ncol(grey), px = 0.03293 * ncol(grey),
-               y0 = 0.1265 * nrow(grey), py = 0.0493  * nrow(grey))
+  # the best candidate grid, judged on all 384 colonies at once
+  best <- list(g = NULL, s = -Inf)
+  for (i in seq_len(nrow(col_fit))) {
+    for (j in seq_len(nrow(row_fit))) {
+      if (abs(col_fit$pitch[i] - row_fit$pitch[j]) > 1.5) next
+      g <- list(x0 = col_fit$start[i] + cols[1] - 1, px = col_fit$pitch[i],
+                y0 = row_fit$start[j] + rows[1] - 1, py = row_fit$pitch[j])
+      s <- score_grid(g)
+      if (s > best$s) best <- list(g = g, s = s)
+    }
+  }
+  # On a plate where the toxin suppressed nearly every colony there may be too
+  # little left to recognise. The plates were photographed in the same rig, so
+  # a grid that already fitted other plates is a fair guess; it still has to
+  # win on the Iris agreement like any other candidate.
+  for (g in rig_grids(plate, img$step)) {
+    s <- score_grid(g)
+    if (s > best$s) best <- list(g = g, s = s)
+  }
 
+  grid <- best$g
+  if (is.null(grid)) stop(plate, ": could not place a colony grid in the photo")
+
+  # polish each parameter in turn
   refine <- function(g, field, values) {
     best <- g; best_score <- score_grid(g)
     for (v in values) {
@@ -72,21 +167,25 @@ fit_colony_grid <- function(plate, quiet = FALSE, iris_file = NULL) {
     }
     best
   }
+  # coarse first, in case the guess came from another plate's grid
+  grid <- refine(grid, "x0", seq(grid$x0 - 25, grid$x0 + 25, by = 1))
+  grid <- refine(grid, "y0", seq(grid$y0 - 25, grid$y0 + 25, by = 1))
   for (pass in 1:2) {
-    grid <- refine(grid, "x0", seq(grid$x0 - 25, grid$x0 + 25, by = 0.5))
-    grid <- refine(grid, "px", seq(grid$px - 1.5, grid$px + 1.5, by = 0.02))
-    grid <- refine(grid, "y0", seq(grid$y0 - 25, grid$y0 + 25, by = 0.5))
-    grid <- refine(grid, "py", seq(grid$py - 1.5, grid$py + 1.5, by = 0.02))
+    grid <- refine(grid, "x0", seq(grid$x0 - 4, grid$x0 + 4, by = 0.25))
+    grid <- refine(grid, "px", seq(grid$px - 0.3, grid$px + 0.3, by = 0.02))
+    grid <- refine(grid, "y0", seq(grid$y0 - 4, grid$y0 + 4, by = 0.25))
+    grid <- refine(grid, "py", seq(grid$py - 0.3, grid$py + 0.3, by = 0.02))
   }
 
   agreement <- score_grid(grid)
-  if (!quiet) cat(sprintf("%s: colony grid fitted, r = %.3f with Iris opacity\n",
+  if (!quiet) cat(sprintf("%s: colony grid found, r = %.3f with Iris opacity\n",
                           plate, agreement))
   if (agreement < 0.85)
-    stop(plate, ": the fitted grid does not match the Iris measurements (r = ",
+    stop(plate, ": the grid does not match the Iris measurements (r = ",
          round(agreement, 2), ") - refusing to cut out colonies")
 
   # back to the coordinates of the full-size photo
+  step <- img$step
   grid <- list(x0 = (grid$x0 - 1) * step + 1, px = grid$px * step,
                y0 = (grid$y0 - 1) * step + 1, py = grid$py * step,
                agreement = agreement)
@@ -98,12 +197,13 @@ fit_colony_grid <- function(plate, quiet = FALSE, iris_file = NULL) {
 # Cutting out the colonies ---------------------------------------------------
 # One 96-well plate is pinned into 384 format, so each well is a 2x2 quartet of
 # colonies. quartet_pixels() returns the photo pixels of one quartet as a long
-# table, with x and y running 0-1 inside the cut-out so that quartets from
-# different plates can be drawn side by side.
+# table, sampled onto a fixed square grid with x and y running 0-1, so that
+# quartets from differently sized photos can be drawn side by side.
 
 quartet_pixels <- function(plate, well_row, well_col, pad = 0.6, out_px = 220) {
-  grid <- fit_colony_grid(plate)
-  grey <- readPNG(plate_photo_path(plate))[, , 1]
+  grid <- fit_colony_grid(plate, quiet = TRUE)
+  grey <- readJPEG(plate_photo_path(plate))
+  if (length(dim(grey)) == 3) grey <- grey[, , 1]
 
   centre <- function(i, first, pitch) first + pitch * (i - 1)
   x_lo <- centre(2 * well_col - 1, grid$x0, grid$px) - grid$px * pad
@@ -111,8 +211,6 @@ quartet_pixels <- function(plate, well_row, well_col, pad = 0.6, out_px = 220) {
   y_lo <- centre(2 * well_row - 1, grid$y0, grid$py) - grid$py * pad
   y_hi <- centre(2 * well_row,     grid$y0, grid$py) + grid$py * pad
 
-  # Sampled onto a fixed out_px x out_px grid, so cut-outs from plates
-  # photographed at different sizes can be drawn next to each other.
   xs <- pmin(ncol(grey), pmax(1, round(seq(x_lo, x_hi, length.out = out_px))))
   ys <- pmin(nrow(grey), pmax(1, round(seq(y_lo, y_hi, length.out = out_px))))
 

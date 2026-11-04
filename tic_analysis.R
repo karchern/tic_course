@@ -1,29 +1,23 @@
-# Toxin Inhibition Conjugation (TIC) screen: from colony measurements to a
-# volcano plot of RcaT blockers.
-#
-# Each colony is one E. coli strain carrying two plasmids: the RcaT toxin
-# (arabinose-inducible) and a designed blocker from the library (IPTG-inducible).
-# A blocker works if its colonies still grow when both are induced.
-#
-# Run from the repo root:  Rscript preprocess.R && Rscript tic_analysis.R
 library(tidyverse)
 
 out_dir  <- "output"
 p_cutoff <- 0.01
 
-
-# 1. Load the preprocessed colonies ------------------------------------------
-# preprocess.R built this table: every .iris file read and joined to the plate
-# map, so each colony carries its strain and gene name, and the plate name
-# decoded into plasmid, retron, induction and plate copy. It kept the pir116
-# plasmid, RcaT-Sen2, low IPTG, plate copies A_1 and B_1, and the two
-# conditions compared below: IPTG alone and Ara + IPTG.
+# Load data
 colonies <- read_tsv("data/colonies.tsv", show_col_types = FALSE)
 
+# 2. Sanity checks: does the experiment behave as it should? 
+ggplot(
+    colonies %>%
+      mutate(is_gfp = ifelse(genename == "gfp", "GFP", "non-GFP"))
+      , aes(induction, opacity, fill = is_gfp)) +
+  geom_boxplot(outlier.size = 0.4, linewidth = 0.3) +
+  scale_fill_manual(values = c("GFP" = 'green', 'non-GFP' = 'grey')) +
+  theme_bw()
 
 # 3. Correct the plate edges -------------------------------------------------
 colonies <- colonies %>%
-  group_by(plate_rep, induced) %>%
+  group_by(plate_rep, induction) %>%
   mutate(interior_median_opacity = median(opacity[row %in% 2:15 & column %in% 2:23])) %>%
   mutate(exterior_median_opacity = median(opacity[!(row %in% 2:15 & column %in% 2:23)])) %>%
   mutate(correction_factor = interior_median_opacity / exterior_median_opacity) %>%
@@ -34,7 +28,7 @@ colonies <- colonies %>%
 
 # 4. Normalise to the GFP controls on the same plate -------------------------
 fitness <- colonies %>%
-  group_by(plate_rep, induced) %>%
+  group_by(plate_rep, induction) %>%
   mutate(normalized_fitness = opacity_edge_corrected / mean(opacity_edge_corrected[genename == "gfp"])) %>%
   ungroup()
 
@@ -44,12 +38,17 @@ fitness <- colonies %>%
 
 ratios <- fitness %>%
   select(
-    plate_rep, induced, strain, plate_96, genename, normalized_fitness
+    plate_rep, induction, strain, plate_96, genename, normalized_fitness
   ) %>%
-  pivot_wider(names_from = induced, values_from = normalized_fitness) %>%
+  pivot_wider(names_from = induction, values_from = normalized_fitness) %>%
   mutate(ratio = AraIPTG / IPTG)
 
 # Check for undefined ratios (IPTG values very low -> pinning errors)
+ratios %>%
+  filter(!is.finite(ratio))
+
+# Go on...
+
 ratios <-  ratios %>%
   filter(is.finite(ratio))
 
@@ -92,35 +91,15 @@ results <- library_gene_ratios_listed %>%
     effect = med_ratio, p_value = t.test.pvalue.corrected
   )
 
-# controls <- ratios %>%
-#   filter(genename == "gfp") %>%
-#   group_by(strain) %>%
-#   summarise(ratio = mean(ratio), .groups = "drop")
-
-
-# # 6. Test each blocker against the GFP controls ------------------------------
-# # Effect size 1 means "behaves like GFP"; above 1 means it rescues growth.
-# compare_with_gfp <- function(ratio, retron) {
-#   control <- controls$ratio[controls$retron == retron[1]]
-#   tibble(effect  = mean(ratio) / mean(control),
-#          p_value = t.test(ratio, control)$p.value,
-#          n = length(ratio), n_control = length(control))
-# }
-
-# results <- ratios %>%
-#   filter(genename != "gfp") %>%
-#   group_by(retron, genename) %>%
-#   reframe(compare_with_gfp(ratio, retron)) %>%
-#   left_join(cutoffs, by = "retron") %>%
-#   mutate(hit = p_value < p_cutoff & effect > cutoff)
-
 
 # 7. Volcano plot ------------------------------------------------------------
 volcano <- ggplot(results, aes(effect, -log10(p_value))) +
+  geom_text_repel
   #geom_hline(yintercept = -log10(p_cutoff), linetype = "dashed", colour = "grey50") +
   #geom_vline(data = cutoffs, aes(xintercept = cutoff), linetype = "dashed", colour = "grey50") +
   #geom_point(aes(colour = hit), alpha = 0.7) +
-  geom_point(alpha = 0.7)
+  geom_point(alpha = 0.7) +
+  theme_bw()
 #  geom_text(aes(label = if_else(hit, genename, "")), size = 2.5, vjust = -0.9, check_overlap = TRUE) +
 #  geom_text(aes(label = if_else(genename, "")), size = 2.5, vjust = -0.9, check_overlap = TRUE) +
 #  facet_wrap(~ retron, scales = "free_x") +
@@ -138,3 +117,7 @@ results %>% select(genename, effect, p_value, t.test.pvalue) %>%
   write_tsv(file.path(out_dir, "hits.tsv"))
 
 results %>% select(genename, effect, p_value) %>% slice_head(n = 10) %>% print()
+
+source("inspect_gene.R")
+inspect_gene("50aa_1_55")
+
