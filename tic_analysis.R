@@ -1,10 +1,12 @@
 library(tidyverse)
+library(ggrepel)
 
 out_dir  <- "output"
 p_cutoff <- 0.01
 
 # Load data
 colonies <- read_tsv("data/colonies.tsv", show_col_types = FALSE)
+#colonies <- read_tsv("data/colonies_predocs.tsv", show_col_types = FALSE)
 
 # 2. Sanity checks: does the experiment behave as it should? 
 ggplot(
@@ -94,29 +96,11 @@ results <- library_gene_ratios_listed %>%
 
 # 7. Volcano plot ------------------------------------------------------------
 volcano <- ggplot(results, aes(effect, -log10(p_value))) +
-  geom_text_repel
-  #geom_hline(yintercept = -log10(p_cutoff), linetype = "dashed", colour = "grey50") +
-  #geom_vline(data = cutoffs, aes(xintercept = cutoff), linetype = "dashed", colour = "grey50") +
-  #geom_point(aes(colour = hit), alpha = 0.7) +
   geom_point(alpha = 0.7) +
   theme_bw()
-#  geom_text(aes(label = if_else(hit, genename, "")), size = 2.5, vjust = -0.9, check_overlap = TRUE) +
-#  geom_text(aes(label = if_else(genename, "")), size = 2.5, vjust = -0.9, check_overlap = TRUE) +
-#  facet_wrap(~ retron, scales = "free_x") +
-  # scale_x_continuous(expand = expansion(mult = 0.1)) +   # room for the labels
-  # scale_colour_manual(values = c(`FALSE` = "grey60", `TRUE` = "firebrick"), guide = "none") +
-  # labs(x = "effect size:  (toxin + blocker) / toxin,  relative to GFP",
-  #      y = "-log10(p)",
-  #      title = "Designed blockers of RcaT toxicity",
-  #      subtitle = "dashed lines: the significance and effect-size cutoffs") +
-  # theme_bw()
 
-dir.create(out_dir, showWarnings = FALSE)
-ggsave(file.path(out_dir, "volcano.png"), volcano, width = 9, height = 4.5, dpi = 150, bg = "white")
 results %>% select(genename, effect, p_value, t.test.pvalue) %>%
   write_tsv(file.path(out_dir, "hits.tsv"))
-
-results %>% select(genename, effect, p_value) %>% slice_head(n = 10) %>% print()
 
 source("inspect_gene.R")
 inspect_gene("50aa_1_55")

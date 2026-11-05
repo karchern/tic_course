@@ -14,28 +14,56 @@
 #   4. the whole grid is then scored against all 384 Iris measurements and
 #      polished. Below r = 0.85 we refuse to cut anything out, so a grid that
 #      is off by a colony cannot pass unnoticed.
-# The answer is cached next to the photo as <plate>.grid.csv.
+# The answer is cached in data/grid_fits as <source>__<plate>.grid.csv.
 #
-# Photos live in data/photos, named after the plate exactly like the .iris
-# files, e.g. data/photos/SpecGentAraIPTG-10050201-3A_1.jpg.
+# There are two screens, each with its own Iris output and its own plate
+# photographs, named slightly differently. plate_source() says where a screen
+# keeps its files; everything else here takes one.
 library(jpeg)
 
-photo_dir <- "data/photos"
-iris_dir  <- "data/iris"
+grid_dir <- "data/grid_fits"
 
-plates_with_photos <- function() {
-  str_remove(basename(list.files(photo_dir, "\\.jpg$")), "\\.jpg$")
+plate_sources <- list(
+  iris = list(
+    colonies = "data/colonies.tsv",
+    photos   = "data/photos",
+    iris     = "data/iris",
+    # data/photos/SpecGentAraIPTG-10050201-3A_1.jpg
+    photo_of = function(plate) paste0(plate, ".jpg")),
+  iris_predocs = list(
+    colonies = "data/colonies_predocs.tsv",
+    photos   = "data/plate_images_predocs",
+    iris     = "data/iris_predocs",
+    # the predoc photos drop the copy number: SpecGentAraIPTG-10050201-A.JPG
+    photo_of = function(plate) paste0(str_remove(plate, "_1$"), ".JPG"))
+)
+
+plate_source <- function(source = "iris") {
+  if (is.list(source)) return(source)
+  if (!source %in% names(plate_sources))
+    stop(source, " is not a screen - use one of: ", paste(names(plate_sources), collapse = ", "))
+  c(plate_sources[[source]], name = source)
 }
 
-plate_photo_path <- function(plate) file.path(photo_dir, paste0(plate, ".jpg"))
-plate_iris_path  <- function(plate) file.path(iris_dir, paste0(plate, ".jpg.iris"))
+plates_with_photos <- function(src = plate_source()) {
+  photos <- list.files(src$photos, "\\.jpe?g$", ignore.case = TRUE)
+  photos <- photos[!str_detect(photos, "\\.grid\\.")]   # Iris's own overlays
+  plates <- str_remove(basename(list.files(src$iris, "\\.iris$")), "\\.jpg\\.iris$")
+  plates[map_chr(plates, src$photo_of) %in% photos]
+}
+
+plate_photo_path <- function(plate, src = plate_source()) file.path(src$photos, src$photo_of(plate))
+plate_iris_path  <- function(plate, src = plate_source()) file.path(src$iris, paste0(plate, ".jpg.iris"))
+grid_cache_path  <- function(plate, src = plate_source()) {
+  file.path(grid_dir, paste0(src$name, "__", plate, ".grid.csv"))
+}
 
 # Searching the grid reads thousands of little patches, so it is done on a
 # thinned copy of the photo. Colonies are over a hundred pixels across, so
 # nothing that matters is lost; the answer is scaled back up at the end.
 read_grey <- function(path, target_px = 2.2e6) {
   full <- readJPEG(path)
-  if (length(dim(full)) == 3) full <- full[, , 1]
+  if (length(dim(full)) == 3) full <- (full[, , 1] + full[, , 2] + full[, , 3]) / 3
   step <- max(1, floor(sqrt(length(full) / target_px)))
   list(grey = full[seq(1, nrow(full), step), seq(1, ncol(full), step)], step = step)
 }
@@ -55,9 +83,11 @@ detrend <- function(profile, window) {
 
 # Grids already fitted for other plates, in this photo's own coordinates: the
 # median of the good ones, and each of them on its own.
-rig_grids <- function(plate, step, min_agreement = 0.95) {
-  files <- setdiff(list.files(photo_dir, "\\.grid\\.csv$", full.names = TRUE),
-                   file.path(photo_dir, paste0(plate, ".grid.csv")))
+rig_grids <- function(plate, step, src = plate_source(), min_agreement = 0.95) {
+  files <- setdiff(list.files(grid_dir, paste0("^", src$name, "__.*\\.grid\\.csv$"),
+                              full.names = TRUE),
+                   grid_cache_path(plate, src))
+  if (length(files) == 0) return(list())
   fitted <- map(files, read.csv) %>% list_rbind() %>% filter(agreement >= min_agreement)
   if (nrow(fitted) == 0) return(list())
   shrink <- function(g) list(x0 = (g$x0 - 1) / step + 1, px = g$px / step,
@@ -69,13 +99,14 @@ rig_grids <- function(plate, step, min_agreement = 0.95) {
 
 # Fitting the colony grid ----------------------------------------------------
 
-fit_colony_grid <- function(plate, quiet = FALSE) {
-  cache <- file.path(photo_dir, paste0(plate, ".grid.csv"))
+fit_colony_grid <- function(plate, src = plate_source(), quiet = FALSE) {
+  src   <- plate_source(src)
+  cache <- grid_cache_path(plate, src)
   if (file.exists(cache)) return(as.list(read.csv(cache)))
 
-  img  <- read_grey(plate_photo_path(plate))
+  img  <- read_grey(plate_photo_path(plate, src))
   grey <- img$grey
-  iris <- read.delim(plate_iris_path(plate), skip = 6)
+  iris <- read.delim(plate_iris_path(plate, src), skip = 6)
 
   cols <- plate_box(colMeans(grey))
   rows <- plate_box(rowMeans(grey))
@@ -149,7 +180,7 @@ fit_colony_grid <- function(plate, quiet = FALSE) {
   # little left to recognise. The plates were photographed in the same rig, so
   # a grid that already fitted other plates is a fair guess; it still has to
   # win on the Iris agreement like any other candidate.
-  for (g in rig_grids(plate, img$step)) {
+  for (g in rig_grids(plate, img$step, src)) {
     s <- score_grid(g)
     if (s > best$s) best <- list(g = g, s = s)
   }
@@ -189,6 +220,7 @@ fit_colony_grid <- function(plate, quiet = FALSE) {
   grid <- list(x0 = (grid$x0 - 1) * step + 1, px = grid$px * step,
                y0 = (grid$y0 - 1) * step + 1, py = grid$py * step,
                agreement = agreement)
+  dir.create(grid_dir, showWarnings = FALSE)
   write.csv(as.data.frame(grid), cache, row.names = FALSE)
   grid
 }
@@ -200,10 +232,12 @@ fit_colony_grid <- function(plate, quiet = FALSE) {
 # table, sampled onto a fixed square grid with x and y running 0-1, so that
 # quartets from differently sized photos can be drawn side by side.
 
-quartet_pixels <- function(plate, well_row, well_col, pad = 0.6, out_px = 220) {
-  grid <- fit_colony_grid(plate, quiet = TRUE)
-  grey <- readJPEG(plate_photo_path(plate))
-  if (length(dim(grey)) == 3) grey <- grey[, , 1]
+quartet_pixels <- function(plate, well_row, well_col, src = plate_source(),
+                           pad = 0.6, out_px = 220) {
+  src  <- plate_source(src)
+  grid <- fit_colony_grid(plate, src, quiet = TRUE)
+  grey <- readJPEG(plate_photo_path(plate, src))
+  if (length(dim(grey)) == 3) grey <- (grey[, , 1] + grey[, , 2] + grey[, , 3]) / 3
 
   centre <- function(i, first, pitch) first + pitch * (i - 1)
   x_lo <- centre(2 * well_col - 1, grid$x0, grid$px) - grid$px * pad

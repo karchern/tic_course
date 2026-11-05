@@ -9,17 +9,21 @@
 # A GFP quartet from the same plates is shown alongside as the reference: GFP
 # does not block the toxin, so it is what "no effect" looks like.
 #
-# Photos go in data/photos, named after the plate like the .iris files; see
-# plate_photos.R. A plate without a photo is reported and left out.
+# There are two screens to look at: the original one ("iris", the default) and
+# the predoc course repeat ("iris_predocs"). Each has its own colony table and
+# its own plate photographs; plate_photos.R says where. A plate without a
+# photograph is reported and left out.
 #
 #   source("inspect_gene.R")
 #   inspect_gene("50aa_1_55")
+#   inspect_gene("50aa_1_55", "iris_predocs")
 library(tidyverse)
 library(patchwork)
 source("plate_photos.R")
 
-inspect_gene <- function(gene, colonies = NULL) {
-  if (is.null(colonies)) colonies <- read_tsv("data/colonies.tsv", show_col_types = FALSE)
+inspect_gene <- function(gene, source = "iris", colonies = NULL) {
+  src <- plate_source(source)
+  if (is.null(colonies)) colonies <- read_tsv(src$colonies, show_col_types = FALSE)
   if (!gene %in% colonies$genename) stop(gene, " is not in the data")
   # the two conditions the analysis compares
   colonies <- colonies %>% filter(induction %in% c("IPTG", "AraIPTG"))
@@ -49,7 +53,7 @@ inspect_gene <- function(gene, colonies = NULL) {
   summary_panel <- ggplot(shown, aes(condition, opacity, colour = what, group = position)) +
     geom_line(alpha = 0.4) +
     geom_point(size = 3, alpha = 0.85) +
-    facet_wrap(~ paste("plate copy", plate_rep), ncol = 1) +
+    facet_wrap(~ paste("plate copy", copy), ncol = 1) +
     scale_y_continuous(limits = c(0, NA), labels = scales::label_number(scale = 1e-3, suffix = "k")) +
     scale_colour_manual(values = strain_colours) +
     labs(x = NULL, y = "Iris opacity", colour = NULL,
@@ -58,20 +62,20 @@ inspect_gene <- function(gene, colonies = NULL) {
     theme(legend.position = "top", panel.grid.minor = element_blank())
 
   # The raw colonies, for the plates we have a photograph of.
-  have <- intersect(unique(shown$plate), plates_with_photos())
-  missing <- setdiff(unique(shown$plate), plates_with_photos())
+  have <- intersect(unique(shown$plate), plates_with_photos(src))
+  missing <- setdiff(unique(shown$plate), plates_with_photos(src))
   if (length(have) == 0)
-    stop("no plate photographs found in ", photo_dir, " for the plates in the data")
+    stop("no plate photographs found in ", src$photos, " for the plates in the data")
 
   pixels <- shown %>%
     filter(plate %in% have) %>%
-    distinct(plate, plate_rep, what, condition, well_row, well_col) %>%
+    distinct(plate, copy, what, condition, well_row, well_col) %>%
     rowwise() %>%
-    reframe(across(everything()), quartet_pixels(plate, well_row, well_col))
+    reframe(across(everything()), quartet_pixels(plate, well_row, well_col, src))
 
   photo_panel <- ggplot(pixels, aes(x, y, fill = grey)) +
     geom_raster() +
-    facet_grid(paste("plate copy", plate_rep) ~ what + condition, switch = "y") +
+    facet_grid(paste("plate copy", copy) ~ what + condition, switch = "y") +
     scale_y_reverse() +
     scale_fill_gradient(low = "black", high = "white", guide = "none") +
     coord_fixed() +
@@ -84,14 +88,14 @@ inspect_gene <- function(gene, colonies = NULL) {
     "right: every quartet cut out of its plate photograph"
   } else {
     message("no photograph for: ", paste(missing, collapse = ", "),
-            "\n  (drop one in ", photo_dir, " named after the plate to include it)")
+            "\n  (drop one in ", src$photos, " named after the plate to include it)")
     sprintf("right: real colonies, for the %d of %d plates we have a photograph of",
             length(have), length(have) + length(missing))
   }
 
   summary_panel + photo_panel +
     plot_layout(widths = c(1, 1.3)) +
-    plot_annotation(title = paste("Raw data:", gene),
+    plot_annotation(title = paste0("Raw data: ", gene, "   (", src$name, ")"),
                     subtitle = "every well is pinned as a 2x2 quartet; GFP shown as the no-effect reference",
                     caption = note,
                     theme = theme(plot.title = element_text(size = 15, face = "bold")))

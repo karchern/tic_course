@@ -1,9 +1,9 @@
-output/
 *.log
-.Rhistory
-.RData
-.Rproj.user/
 *_cache/
 *_files/
 .DS_Store
+.RData
+.Rhistory
+.Rproj.user/
 Images of plates.tar
+output/

@@ -7,9 +7,13 @@
 # Run from the repo root:  Rscript preprocess.R
 library(tidyverse)
 
-iris_dir <- "data/iris"
+iris_dir <- "data/iris_predocs"
+#iris_dir <- "data/iris"
+
 map_file <- "data/AlphaDesign_384wp.identifiers.csv"
-out_file <- "data/colonies.tsv"
+
+out_file <- "data/colonies_predocs.tsv"
+#out_file <- "data/colonies.tsv"
 
 
 # 1. Load --------------------------------------------------------------------
@@ -36,10 +40,12 @@ colonies <- list.files(iris_dir, "\\.iris$", full.names = TRUE) %>%
 colonies <- colonies %>%
   separate_wider_delim(plate, "-", names = c("drugs", "inducers", "copy"), cols_remove = FALSE) %>%
   mutate(
-    block     = as.integer(str_sub(copy, 1, 1)),
+    #block     = as.integer(str_sub(copy, 1, 1)),
     plate_rep = str_sub(copy, 2),
-    plasmid   = if_else(block %in% c(1, 2), "p-RcaT", "pir116"),
-    retron    = if_else(block %in% c(1, 3), "Sen2", "Eco9"),
+#    plasmid   = if_else(block %in% c(1, 2), "p-RcaT", "pir116"),
+    plasmid   = 'pir116',
+#    retron    = if_else(block %in% c(1, 3), "Sen2", "Eco9"),
+    retron    = 'Sen2',
     induced   = str_remove(str_remove(drugs, "Spec"), "Gent|tet"),
     induced   = if_else(induced == "", "none", induced),
     iptg      = case_when(inducers %in% c("100501", "10050201", "1001001", "100100201") ~ "low",
@@ -63,7 +69,7 @@ colonies <- colonies %>%
 # 3. Keep only columns we need
 colonies <- colonies %>%
   select(
-    row, column, opacity, plate, copy, strain, genename, plate_96, plate_rep, retron, induced
+    row, column, opacity, plate, copy, strain, genename, plate_96, plate_rep, induced
   ) %>%
   rename(induction = induced)
 
