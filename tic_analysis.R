@@ -50,7 +50,6 @@ ratios %>%
   filter(!is.finite(ratio))
 
 # Go on...
-
 ratios <-  ratios %>%
   filter(is.finite(ratio))
 
@@ -108,6 +107,10 @@ volcano <- ggplot(results, aes(effect, -log10(p_value))) +
 results %>% select(genename, effect, p_value, t.test.pvalue) %>%
   write_tsv(file.path(out_dir, "hits.tsv"))
 
+
+
+# Inspect some strong hits
+
 source("inspect_gene.R")
-inspect_gene("50aa_1_55")
+inspect_gene("50aa_1_55", source = 'iris_predocs')
 
