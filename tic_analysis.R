@@ -5,8 +5,8 @@ out_dir  <- "output"
 p_cutoff <- 0.01
 
 # Load data
-colonies <- read_tsv("data/colonies.tsv", show_col_types = FALSE)
-#colonies <- read_tsv("data/colonies_predocs.tsv", show_col_types = FALSE)
+#colonies <- read_tsv("data/colonies.tsv", show_col_types = FALSE)
+colonies <- read_tsv("data/colonies_predocs.tsv", show_col_types = FALSE)
 
 # 2. Sanity checks: does the experiment behave as it should? 
 ggplot(
@@ -37,11 +37,11 @@ fitness <- colonies %>%
 # 5. Effect size -------------------------------------------------------------
 # How much better does a strain grow with toxin AND blocker than with the toxin
 # alone? One ratio per clone per plate copy, so 6 values for each blocker.
-
 ratios <- fitness %>%
   select(
     plate_rep, induction, strain, plate_96, genename, normalized_fitness
   ) %>%
+  distinct(plate_rep, induction, strain, plate_96, genename, normalized_fitness, .keep_all = TRUE) %>%
   pivot_wider(names_from = induction, values_from = normalized_fitness) %>%
   mutate(ratio = AraIPTG / IPTG)
 
@@ -97,6 +97,12 @@ results <- library_gene_ratios_listed %>%
 # 7. Volcano plot ------------------------------------------------------------
 volcano <- ggplot(results, aes(effect, -log10(p_value))) +
   geom_point(alpha = 0.7) +
+  geom_text_repel(
+    data = results %>% 
+      arrange(p_value) %>% 
+      filter(effect > 1) %>% 
+      head(10), 
+    aes(effect, -log10(p_value), label = genename)) +
   theme_bw()
 
 results %>% select(genename, effect, p_value, t.test.pvalue) %>%

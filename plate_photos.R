@@ -34,8 +34,7 @@ plate_sources <- list(
     colonies = "data/colonies_predocs.tsv",
     photos   = "data/plate_images_predocs",
     iris     = "data/iris_predocs",
-    # the predoc photos drop the copy number: SpecGentAraIPTG-10050201-A.JPG
-    photo_of = function(plate) paste0(str_remove(plate, "_1$"), ".JPG"))
+    photo_of = function(plate) paste0(plate, ".jpg"))
 )
 
 plate_source <- function(source = "iris") {
