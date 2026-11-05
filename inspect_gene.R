@@ -9,19 +9,21 @@
 # A GFP quartet from the same plates is shown alongside as the reference: GFP
 # does not block the toxin, so it is what "no effect" looks like.
 #
-# There are two screens to look at: the original one ("iris", the default) and
-# the predoc course repeat ("iris_predocs"). Each has its own colony table and
-# its own plate photographs; plate_photos.R says where. A plate without a
-# photograph is reported and left out.
+# There are two screens to look at, and you have to say which: the original
+# one ("iris") or the predoc course repeat ("iris_predocs"). Each has its own
+# colony table and its own plate photographs; plate_photos.R says where. A
+# plate without a photograph is reported and left out.
 #
 #   source("inspect_gene.R")
-#   inspect_gene("50aa_1_55")
+#   inspect_gene("50aa_1_55", "iris")
 #   inspect_gene("50aa_1_55", "iris_predocs")
 library(tidyverse)
 library(patchwork)
 source("plate_photos.R")
 
-inspect_gene <- function(gene, source = "iris", colonies = NULL) {
+inspect_gene <- function(gene, source, colonies = NULL) {
+  if (missing(source))
+    stop("say which screen to look at: ", paste(names(plate_sources), collapse = " or "))
   src <- plate_source(source)
   if (is.null(colonies)) colonies <- read_tsv(src$colonies, show_col_types = FALSE)
   if (!gene %in% colonies$genename) stop(gene, " is not in the data")
